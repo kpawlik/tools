@@ -23,6 +23,8 @@ var (
 	linesChan  chan string
 	lines      = []string{}
 	mux        = &sync.Mutex{}
+	cfg        *config
+	logFile    *os.File
 )
 
 type config struct {
@@ -44,7 +46,16 @@ func init() {
 	flag.Parse()
 	if help {
 		flag.PrintDefaults()
+		os.Exit(0)
 	}
+	cfg = readConfig()
+	logFileName := fmt.Sprintf("mosaic_go_%s.log", time.Now().Format("20060102"))
+	logFileName = path.Join(cfg.LogDir, logFileName)
+	if logFile, err = os.OpenFile(logFileName, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666); err != nil {
+		fmt.Printf("error opening file: %v", err)
+		os.Exit(1)
+	}
+	log.SetOutput(logFile)
 }
 
 func readConfig() *config {
@@ -65,20 +76,14 @@ func readConfig() *config {
 }
 
 func main() {
-	var (
-		logFile *os.File
-	)
-	logFileName := fmt.Sprintf("mosaic_go_%s.log", time.Now().Format("20060102"))
-	cfg := readConfig()
-	if logFile, err = os.OpenFile(logFileName, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666); err != nil {
-		fmt.Printf("error opening file: %v", err)
-		os.Exit(1)
-	}
 	defer logFile.Close()
-	log.SetOutput(logFile)
+	cfg := readConfig()
+	log.Printf("Run command %s %s\n", cfg.Commad, strings.Join(cfg.CommadArgs, " "))
 	cmd := exec.Command(cfg.Commad, cfg.CommadArgs...)
+
 	stdout, _ := cmd.StdoutPipe()
 	cmd.Start()
+
 	linesChan = make(chan string)
 	go func() {
 		for {
@@ -144,8 +149,10 @@ func writeOut(lines []string, fileName string, cfg *config) (err error) {
 }
 
 func writeChunk(lines []string, cfg *config) (err error) {
-	//Mon Jan 2 15:04:05 -0700 MST 2006
-	fileName := fmt.Sprintf("mosaic_%s", time.Now().Format("20060102150405000"))
+	if len(lines) == 0 {
+		return
+	}
+	fileName := fmt.Sprintf("mosaic_%s%d", time.Now().Format("20060102150405"), time.Now().Nanosecond())
 	fileName = path.Join(cfg.OutDir, fileName)
 	csvLines := [][]string{}
 	for _, line := range lines {

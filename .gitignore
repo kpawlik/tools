@@ -1,1 +1,5 @@
 out_reader/out/
+*.log
+*.tmp
+out_reader/lines_gen.exe
+out_reader/config.json
