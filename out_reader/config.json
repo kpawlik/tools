@@ -1,0 +1,33 @@
+{
+    "columns": [
+        "ASSOCIATED_NODE",
+        "ICOMS_NUMBER",
+        "STREET_ADDRESS",
+        "MAC_ADDRESS",
+        "DEVICE_TYPE",
+        "DEVICE_DESCRIPTION",
+        "POI_NUMBER",
+        "TICKET_COUNT",
+        "IMPACT_NUMBER",
+        "VIOLATION_TYPE",
+        "VIOLATION_DATE",
+        "RULE_DESC",
+        "RULE_NBR",
+        "REMEDY",
+        "POI_NODE_FAULT_ID",
+        "POI_ELEMT_FAULT_ID",
+        "SITE_ID",
+        "FAULT_IMPACT_TYPE_ID",
+        "POI_CNT",
+        "GNIS_NODE_ID",
+        "XMIT_INDICATOR",
+        "POI_TYPE",
+        "STATUS"
+    ],
+    "write_interval": 30,
+    "command": "lines_gen.exe",
+    "command_args": [],
+    "out_dir": ".\\out",
+    "log_dir": ".",
+    "csv_delimiter": ","
+}
