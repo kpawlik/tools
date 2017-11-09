@@ -11,12 +11,12 @@ var (
 )
 
 func main() {
-	ticker := time.NewTicker(200 * time.Millisecond)
+	ticker := time.NewTicker(time.Millisecond)
 	go func(ticker *time.Ticker) {
 		for _ = range ticker.C {
 			i++
 			fmt.Printf("%s\n", fmt.Sprintf(line, i))
 		}
 	}(ticker)
-	time.Sleep(time.Minute)
+	time.Sleep(60 * time.Minute)
 }

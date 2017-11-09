@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	lumberjack "gopkg.in/natefinch/lumberjack.v2"
 )
 
 var (
@@ -52,13 +54,13 @@ func init() {
 		os.Exit(0)
 	}
 	cfg = readConfig()
-	logFileName := fmt.Sprintf("mosaic_go_%s.log", time.Now().Format("20060102"))
-	logFileName = path.Join(cfg.LogDir, logFileName)
-	if logFile, err = os.OpenFile(logFileName, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666); err != nil {
-		fmt.Printf("error opening file: %v", err)
-		os.Exit(1)
-	}
-	log.SetOutput(logFile)
+	logFileName := path.Join(cfg.LogDir, "mosaic_go.log")
+	log.SetOutput(&lumberjack.Logger{
+		Filename:   logFileName,
+		MaxSize:    20, // megabytes
+		MaxBackups: 5,
+	})
+
 	for _, format := range cfg.OutFormats {
 		switch strings.ToLower(format) {
 		case "csv":
