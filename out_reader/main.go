@@ -17,14 +17,16 @@ import (
 )
 
 var (
-	configFile string
-	line       string
-	err        error
-	linesChan  chan string
-	lines      = []string{}
-	mux        = &sync.Mutex{}
-	cfg        *config
-	logFile    *os.File
+	configFile    string
+	line          string
+	err           error
+	linesChan     chan string
+	lines         = []string{}
+	mux           = &sync.Mutex{}
+	cfg           *config
+	logFile       *os.File
+	writeOutAsCsv bool
+	writeOutAsRaw bool
 )
 
 type config struct {
@@ -35,6 +37,7 @@ type config struct {
 	OutDir        string   `json:"out_dir"`
 	LogDir        string   `json:"log_dir"`
 	CsvDelimiter  string   `json:"csv_delimiter"`
+	OutFormats    []string `json:"out_formats"`
 }
 
 func init() {
@@ -56,6 +59,14 @@ func init() {
 		os.Exit(1)
 	}
 	log.SetOutput(logFile)
+	for _, format := range cfg.OutFormats {
+		switch strings.ToLower(format) {
+		case "csv":
+			writeOutAsCsv = true
+		case "raw":
+			writeOutAsRaw = true
+		}
+	}
 }
 
 func readConfig() *config {
@@ -123,8 +134,12 @@ func main() {
 }
 
 func writeCsv(lines [][]string, fileName string, cfg *config) (err error) {
+	if !writeOutAsCsv {
+		return
+	}
+	fileName = fmt.Sprintf("%s.%s", fileName, "csv")
 	var f *os.File
-	if f, err = os.Create(fmt.Sprintf("%s.%s", fileName, "csv")); err != nil {
+	if f, err = os.Create(fileName); err != nil {
 		return
 	}
 	defer f.Close()
@@ -139,12 +154,17 @@ func writeCsv(lines [][]string, fileName string, cfg *config) (err error) {
 		}
 	}
 	csvWriter.Flush()
+	log.Printf("%d records stored in %s", len(lines), fileName)
 	return
 }
 
 func writeOut(lines []string, fileName string, cfg *config) (err error) {
-	name := fmt.Sprintf("%s.%s", fileName, "json")
-	err = ioutil.WriteFile(name, []byte(strings.Join(lines, "\n")), os.ModePerm)
+	if !writeOutAsRaw {
+		return
+	}
+	fileName = fmt.Sprintf("%s.%s", fileName, "json")
+	err = ioutil.WriteFile(fileName, []byte(strings.Join(lines, "\n")), os.ModePerm)
+	log.Printf("%d records stored in %s", len(lines), fileName)
 	return
 }
 
@@ -194,9 +214,11 @@ func writeChunk(lines []string, cfg *config) (err error) {
 		}
 		csvLines = append(csvLines, csvLine)
 	}
+
 	if err = writeCsv(csvLines, fileName, cfg); err != nil {
 		return
 	}
+
 	err = writeOut(lines, fileName, cfg)
 	return
 }
