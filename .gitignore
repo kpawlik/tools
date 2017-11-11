@@ -3,3 +3,4 @@ out_reader/out/
 *.tmp
 out_reader/lines_gen.exe
 out_reader/config.json
+out_reader/out_reader.exe

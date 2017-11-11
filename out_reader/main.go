@@ -88,53 +88,6 @@ func readConfig() *config {
 	return cfg
 }
 
-func main() {
-	defer logFile.Close()
-	cfg := readConfig()
-	log.Printf("Run command %s %s\n", cfg.Commad, strings.Join(cfg.CommadArgs, " "))
-	cmd := exec.Command(cfg.Commad, cfg.CommadArgs...)
-
-	stdout, _ := cmd.StdoutPipe()
-	cmd.Start()
-
-	linesChan = make(chan string)
-	go func() {
-		for {
-			select {
-			case line := <-linesChan:
-				mux.Lock()
-				lines = append(lines, line)
-				mux.Unlock()
-			}
-		}
-	}()
-
-	scanner := bufio.NewScanner(stdout)
-	go func(scanner *bufio.Scanner) {
-		for scanner.Scan() {
-			m := scanner.Text()
-			linesChan <- m
-		}
-	}(scanner)
-
-	ticker := time.NewTicker(time.Second * time.Duration(cfg.WriteInterval))
-	go func(ticker *time.Ticker, cfg *config) {
-		var err error
-		for _ = range ticker.C {
-			mux.Lock()
-			if err = writeChunk(lines, cfg); err != nil {
-				log.Printf("Error write file: %s\n", err)
-			}
-
-			lines = lines[:0]
-			mux.Unlock()
-		}
-	}(ticker, cfg)
-	if err = cmd.Wait(); err != nil {
-		log.Printf("Error for commad %s. %s\n", cfg.Commad, err)
-	}
-}
-
 func writeCsv(lines [][]string, fileName string, cfg *config) (err error) {
 	if !writeOutAsCsv {
 		return
@@ -160,7 +113,7 @@ func writeCsv(lines [][]string, fileName string, cfg *config) (err error) {
 	return
 }
 
-func writeOut(lines []string, fileName string, cfg *config) (err error) {
+func writeRawOut(lines []string, fileName string, cfg *config) (err error) {
 	if !writeOutAsRaw {
 		return
 	}
@@ -221,6 +174,52 @@ func writeChunk(lines []string, cfg *config) (err error) {
 		return
 	}
 
-	err = writeOut(lines, fileName, cfg)
+	err = writeRawOut(lines, fileName, cfg)
 	return
+}
+func main() {
+	defer logFile.Close()
+	cfg := readConfig()
+	log.Printf("Run command %s %s\n", cfg.Commad, strings.Join(cfg.CommadArgs, " "))
+	cmd := exec.Command(cfg.Commad, cfg.CommadArgs...)
+
+	stdout, _ := cmd.StdoutPipe()
+	cmd.Start()
+
+	linesChan = make(chan string)
+	go func() {
+		for {
+			select {
+			case line := <-linesChan:
+				mux.Lock()
+				lines = append(lines, line)
+				mux.Unlock()
+			}
+		}
+	}()
+
+	scanner := bufio.NewScanner(stdout)
+	go func(scanner *bufio.Scanner) {
+		for scanner.Scan() {
+			m := scanner.Text()
+			linesChan <- m
+		}
+	}(scanner)
+
+	ticker := time.NewTicker(time.Second * time.Duration(cfg.WriteInterval))
+	go func(ticker *time.Ticker, cfg *config) {
+		var err error
+		for _ = range ticker.C {
+			mux.Lock()
+			if err = writeChunk(lines, cfg); err != nil {
+				log.Printf("Error write file: %s\n", err)
+			}
+
+			lines = lines[:0]
+			mux.Unlock()
+		}
+	}(ticker, cfg)
+	if err = cmd.Wait(); err != nil {
+		log.Printf("Error for commad %s. %s\n", cfg.Commad, err)
+	}
 }
