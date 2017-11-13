@@ -4,3 +4,4 @@ out_reader/out/
 out_reader/lines_gen.exe
 out_reader/config.json
 out_reader/out_reader.exe
+out_reader/process_out_monitor.exe

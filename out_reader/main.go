@@ -2,15 +2,17 @@ package main
 
 import (
 	"bufio"
-	"encoding/csv"
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"html/template"
 	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
 	"path"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -18,28 +20,31 @@ import (
 	lumberjack "gopkg.in/natefinch/lumberjack.v2"
 )
 
+const logFileName = "process_out_monitor.log"
+
 var (
-	configFile    string
-	line          string
-	err           error
-	linesChan     chan string
-	lines         = []string{}
-	mux           = &sync.Mutex{}
-	cfg           *config
-	logFile       *os.File
-	writeOutAsCsv bool
-	writeOutAsRaw bool
+	configFile   string
+	line         string
+	err          error
+	linesChan    chan string
+	lines        = []string{}
+	mux          = &sync.Mutex{}
+	cfg          *config
+	nameTemplate *template.Template
+	logFilePath  string
+	wg           *sync.WaitGroup
+	mem          runtime.MemStats
 )
 
 type config struct {
-	Columns       []string `json:"columns"`
-	WriteInterval int64    `json:"write_interval"`
-	Commad        string   `json:"command"`
-	CommadArgs    []string `json:"command_args"`
-	OutDir        string   `json:"out_dir"`
-	LogDir        string   `json:"log_dir"`
-	CsvDelimiter  string   `json:"csv_delimiter"`
-	OutFormats    []string `json:"out_formats"`
+	WriteInterval   int64    `json:"write_interval"`
+	Commad          string   `json:"command"`
+	CommadArgs      []string `json:"command_args"`
+	OutDir          string   `json:"out_dir"`
+	LogDir          string   `json:"log_dir"`
+	OutName         string   `json:"out_filename_pattern"`
+	OutScript       string   `json:"out_process_script"`
+	OutScriptParams []string `json:"out_process_script_params"`
 }
 
 func init() {
@@ -54,21 +59,7 @@ func init() {
 		os.Exit(0)
 	}
 	cfg = readConfig()
-	logFileName := path.Join(cfg.LogDir, "mosaic_go.log")
-	log.SetOutput(&lumberjack.Logger{
-		Filename:   logFileName,
-		MaxSize:    20, // megabytes
-		MaxBackups: 5,
-	})
 
-	for _, format := range cfg.OutFormats {
-		switch strings.ToLower(format) {
-		case "csv":
-			writeOutAsCsv = true
-		case "raw":
-			writeOutAsRaw = true
-		}
-	}
 }
 
 func readConfig() *config {
@@ -88,105 +79,76 @@ func readConfig() *config {
 	return cfg
 }
 
-func writeCsv(lines [][]string, fileName string, cfg *config) (err error) {
-	if !writeOutAsCsv {
-		return
+func runConvertScript(fileName string, cfg *config) {
+	params := append(cfg.OutScriptParams, fileName)
+	cmd := exec.Command(cfg.OutScript, params...)
+	if err = cmd.Run(); err != nil {
+		log.Printf("ERROR: Start convert script failed: %s\nProcess: %s\n",
+			err, strings.Join(cmd.Args, " "))
 	}
-	fileName = fmt.Sprintf("%s.%s", fileName, "csv")
-	var f *os.File
-	if f, err = os.Create(fileName); err != nil {
-		return
-	}
-	defer f.Close()
-	csvWriter := csv.NewWriter(f)
-	csvWriter.Comma = rune(cfg.CsvDelimiter[0])
-	if len(lines) == 0 {
-		return
-	}
-	for _, line := range lines {
-		if err = csvWriter.Write(line); err != nil {
-			return
-		}
-	}
-	csvWriter.Flush()
-	log.Printf("%d records stored in %s", len(lines), fileName)
-	return
 }
 
 func writeRawOut(lines []string, fileName string, cfg *config) (err error) {
-	if !writeOutAsRaw {
+	if err = ioutil.WriteFile(fileName, []byte(strings.Join(lines, "\n")), os.ModePerm); err != nil {
 		return
 	}
-	fileName = fmt.Sprintf("%s.%s", fileName, "json")
-	err = ioutil.WriteFile(fileName, []byte(strings.Join(lines, "\n")), os.ModePerm)
 	log.Printf("%d records stored in %s", len(lines), fileName)
 	return
 }
 
-func writeChunk(lines []string, cfg *config) (err error) {
+func writeChunk(lines []string, cfg *config) (fileName string, err error) {
 	if len(lines) == 0 {
 		return
 	}
-	fileName := fmt.Sprintf("mosaic_%s%d", time.Now().Format("20060102150405"), time.Now().Nanosecond())
-	fileName = path.Join(cfg.OutDir, fileName)
-	csvLines := [][]string{}
-	for _, line := range lines {
-		csvLine := []string{}
-		lineMap := make(map[string]interface{})
-		err = json.Unmarshal([]byte(line), &lineMap)
-		if err != nil {
-			log.Printf("Error in JSON line: %v: %s\n", err, line)
-			continue
-		}
-		for _, column := range cfg.Columns {
-			colVal := lineMap[column]
-			colValue := ""
-			switch colVal.(type) {
-			case string:
-				colValue = colVal.(string)
-			case nil:
-				colValue = ""
-			default:
-				colValue = fmt.Sprintf("%v", colVal)
-			}
-
-			if column == "VIOLATION_DATE" && colValue == "none" {
-				colValue = ""
-			}
-			if column == "FAULT_IMPACT_TYPE_ID" {
-				colValue = strings.ToLower(colValue)
-
-				switch colValue {
-				case "nsa", "non-service affecting":
-					colValue = "NSA"
-				case "sa", "service affecting":
-					colValue = "SA"
-				default:
-					colValue = "UNK"
-				}
-			}
-			csvLine = append(csvLine, colValue)
-		}
-		csvLines = append(csvLines, csvLine)
+	buff := &bytes.Buffer{}
+	timestamp := fmt.Sprintf("%s%d", time.Now().Format("20060102150405"), time.Now().Nanosecond())
+	nameTemplate.Execute(buff, struct{ Timestamp string }{Timestamp: timestamp})
+	fileName = path.Join(cfg.OutDir, buff.String())
+	if err = writeRawOut(lines, fileName, cfg); err != nil {
+		log.Printf("ERROR: Write file error: %s (%s)\n", err, fileName)
+		log.Printf("Lines not saved:\n %s\n", strings.Join(lines, "\n"))
 	}
-
-	if err = writeCsv(csvLines, fileName, cfg); err != nil {
-		return
-	}
-
-	err = writeRawOut(lines, fileName, cfg)
 	return
 }
+
+func cleanup(cfg *config, cmd *exec.Cmd) {
+	var (
+		err      error
+		fileName string
+	)
+	wg.Wait()
+	//make sure that all was written
+	mux.Lock()
+	defer mux.Unlock()
+	if fileName, err = writeChunk(lines, cfg); err != nil {
+		log.Printf("Error write file: %s\n", err)
+		return
+	}
+	runConvertScript(fileName, cfg)
+}
+
 func main() {
-	defer logFile.Close()
+	wg = &sync.WaitGroup{}
+	linesChan = make(chan string)
 	cfg := readConfig()
-	log.Printf("Run command %s %s\n", cfg.Commad, strings.Join(cfg.CommadArgs, " "))
+	logFilePath = path.Join(cfg.LogDir, logFileName)
+	log.SetOutput(&lumberjack.Logger{
+		Filename:   logFilePath,
+		MaxSize:    20, // megabytes
+		MaxBackups: 20,
+	})
+	// pprintMem()
+	nameTemplate = template.Must(template.New("fileName").Parse(cfg.OutName))
+
+	log.Printf("Run and monitor command: %s %s\n", cfg.Commad, strings.Join(cfg.CommadArgs, " "))
+	log.Printf("Write interval: %d seconds\n", cfg.WriteInterval)
+	log.Printf("Output dir: %s\n", cfg.OutDir)
+	log.Printf("Log file: %s\n", logFilePath)
+	log.Printf("Out process script: %s %s\n", cfg.OutScript, strings.Join(cfg.OutScriptParams, " "))
 	cmd := exec.Command(cfg.Commad, cfg.CommadArgs...)
 
 	stdout, _ := cmd.StdoutPipe()
 	cmd.Start()
-
-	linesChan = make(chan string)
 	go func() {
 		for {
 			select {
@@ -208,18 +170,35 @@ func main() {
 
 	ticker := time.NewTicker(time.Second * time.Duration(cfg.WriteInterval))
 	go func(ticker *time.Ticker, cfg *config) {
-		var err error
 		for _ = range ticker.C {
+			// pprintMem()
 			mux.Lock()
-			if err = writeChunk(lines, cfg); err != nil {
-				log.Printf("Error write file: %s\n", err)
-			}
-
-			lines = lines[:0]
+			outLines := make([]string, len(lines))
+			copy(outLines, lines)
+			wg.Add(1)
+			go func(lines []string, cfg *config) {
+				defer wg.Done()
+				if fileName, err := writeChunk(lines, cfg); err == nil {
+					runConvertScript(fileName, cfg)
+				}
+			}(outLines, cfg)
+			//lines = lines[0:]
+			lines = nil
 			mux.Unlock()
+			//runtime.GC()
 		}
 	}(ticker, cfg)
 	if err = cmd.Wait(); err != nil {
 		log.Printf("Error for commad %s. %s\n", cfg.Commad, err)
 	}
+	cleanup(cfg, cmd)
 }
+
+// func pprintMem() {
+// 	runtime.ReadMemStats(&mem)
+// 	log.Println("Mem:")
+// 	log.Printf("mem.Alloc: 			%17.d\n", mem.Alloc)
+// 	log.Printf("mem.HeapSys: 		%17.d\n", mem.HeapSys)
+// 	log.Printf("mem.HeapObjects: 	%17.d\n", mem.HeapObjects)
+
+// }
