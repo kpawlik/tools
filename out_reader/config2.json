@@ -1,0 +1,16 @@
+{
+    "write_interval": 10,
+    "command": "lines_gen",
+    "command_args": [
+        "--zookeeper",
+        "dukeevpd24.data.cox.com:2181,dukeevpd26.data.cox.com:2181,dukeevpd28.data.cox.com:2181",
+        "--topic",
+        "GEODATA",
+        "--from-beginning"
+    ],
+    "out_dir": "C:\\tmp\\mstemp",
+    "log_dir": "./log",
+    "out_filename_pattern": "mosaic2_{{.Timestamp}}.json",
+    "out_process_script": "python",
+    "out_process_script_params": ["mosaic_convert_to_csv.py"]
+}

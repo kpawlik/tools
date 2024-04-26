@@ -137,9 +137,7 @@ func main() {
 		MaxSize:    20, // megabytes
 		MaxBackups: 20,
 	})
-	// pprintMem()
 	nameTemplate = template.Must(template.New("fileName").Parse(cfg.OutName))
-
 	log.Printf("Run and monitor command: %s %s\n", cfg.Commad, strings.Join(cfg.CommadArgs, " "))
 	log.Printf("Write interval: %d seconds\n", cfg.WriteInterval)
 	log.Printf("Output dir: %s\n", cfg.OutDir)
@@ -171,7 +169,7 @@ func main() {
 	ticker := time.NewTicker(time.Second * time.Duration(cfg.WriteInterval))
 	go func(ticker *time.Ticker, cfg *config) {
 		for _ = range ticker.C {
-			// pprintMem()
+			pprintMem()
 			mux.Lock()
 			outLines := make([]string, len(lines))
 			copy(outLines, lines)
@@ -194,11 +192,10 @@ func main() {
 	cleanup(cfg, cmd)
 }
 
-// func pprintMem() {
-// 	runtime.ReadMemStats(&mem)
-// 	log.Println("Mem:")
-// 	log.Printf("mem.Alloc: 			%17.d\n", mem.Alloc)
-// 	log.Printf("mem.HeapSys: 		%17.d\n", mem.HeapSys)
-// 	log.Printf("mem.HeapObjects: 	%17.d\n", mem.HeapObjects)
-
-// }
+func pprintMem() {
+	runtime.ReadMemStats(&mem)
+	log.Println("Mem:")
+	log.Printf("mem.Alloc: 			%17.d\n", mem.Alloc)
+	log.Printf("mem.HeapSys: 		%17.d\n", mem.HeapSys)
+	log.Printf("mem.HeapObjects: 	%17.d\n", mem.HeapObjects)
+}

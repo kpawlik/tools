@@ -69,21 +69,25 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Missing file path to convert")
         sys.exit(1)
+    error_counter = 0
     raw_file_name = sys.argv[1]
     csv_file_name = out_file_name(raw_file_name)
     csv_lines = []
     with open(raw_file_name, "r") as raw_file:
-        for json_line in raw_file:
+        raw_lines = raw_file.readlines()
+        for json_line in raw_lines:
             try:
                 csv_line = process_line(json_line)
                 csv_lines.append(csv_line)
             except Exception as exc:
-
+                error_counter += 1
                 log("Error parsing JSON: {}\n".format(exc))
                 log("JSON line: {}\n".format(json_line))
+                if error_counter/len(raw_lines)  >= 0.5:
+                    sys.exit(1)
     write_csv(csv_file_name, csv_lines)
-    os.unlink(csv_file_name)
-    os.unlink(raw_file_name)
+    # os.unlink(csv_file_name)
+    # os.unlink(raw_file_name)
 
 
 
