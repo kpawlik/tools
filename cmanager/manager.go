@@ -1,7 +1,6 @@
 package cmanager
 
 import (
-	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -12,107 +11,14 @@ import (
 	"text/template"
 )
 
-const IMAGE="harbor.delivery.iqgeo.cloud/stedin/capture7031-is7052"
-const TAG="latest"
-
-const COMPOSE=`
-name: "stedin-{{.UserName}}"
-services:
-  memcache-{{.UserName}}:
-    container_name: memcache-{{.UserName}}
-    image: memcached:1.6.19
-    restart: always
-    ports:
-      - {{.MemcachePort}}:11211
-  stedin-{{.UserName}}:
-    container_name: stedin-{{.UserName}}
-    image: {{.ImageName}}:{{.ImageTag}}
-    restart: always
-    depends_on:
-      - memcache-{{.UserName}}
-    environment:
-      DEBUG: "true"
-      PGHOST: std-flex-psql-t01.privatelink.postgres.database.azure.com
-      PGPORT: 5432
-      PGUSER: adminstdflexpsqlt01
-      PGPASSWORD: kKDdkeQsOEk1eMLL
-      PGDATABASE: iqgeo-dev-7.0
-      MYW_DB_HOST: std-flex-psql-t01.privatelink.postgres.database.azure.com
-      MYW_DB_PORT: 5432
-      MYW_DB_USERNAME: adminstdflexpsqlt01
-      MYW_DB_PASSWORD: kKDdkeQsOEk1eMLL
-      MYW_DB_NAME: iqgeo-dev-7.0
-      WSGI_THREADS: 5
-      WSGI_PROCESSES: 2 
-      BEAKER_SESSION_TYPE: ext:memcached
-      BEAKER_SESSION_URL: std-eo-mbmr-d01:{{.MemcachePort}}
-      REPLICATION_SYNC_URL: http://std-eo-mbmr-d01:{{.ApachePort}}/
-    volumes:
-      - ./../modules/custom:/opt/iqgeo/platform/WebApps/myworldapp/modules/custom
-      - /usr/iqgeo/users/shared-data:/shared-data
-      - ./pre-apache-extra-endpoint-7.0.sh:/opt/iqgeo/pre-apache-extra-endpoint.sh
-    ports:
-      - {{.ApachePort}}:8080
-`
-
-type User struct{
-	UserName string
-	ImageName string
-	ImageTag string
-	MemcachePort string
-	ApachePort string
-}
-
-var (
-	Users = []User{
-		User{
-			UserName: "test",
-			MemcachePort: "11390",
-			ApachePort: "8090",
-		},
-		User{
-			UserName: "jaligato",
-			MemcachePort: "11391",
-			ApachePort: "8091",
-		},
-		User{
-			UserName: "marenas",
-			MemcachePort: "11392",
-			ApachePort: "8092",
-		},
-		User{
-			UserName: "opastrana",
-			MemcachePort: "11393",
-			ApachePort: "8093",
-		},
-		User{
-			UserName: "psonawane",
-			MemcachePort: "11394",
-			ApachePort: "8094",
-		},
-		User{
-			UserName: "rllagas",
-			MemcachePort: "11395",
-			ApachePort: "8095",
-		},
-		User{
-			UserName: "kpawlik",
-			MemcachePort: "11396",
-			ApachePort: "8096",
-		},
-	}
-	usersDir = "/usr/iqgeo/users/"
-	templ = template.New("compose")
-	eUsers []string
-)
-
-
-
+// return full path for compose file
 func getComposePath(user string) string {
-	userDir := filepath.Join(usersDir, user, "IQGeo%20platform","local_dev")
+	userDir := filepath.Join(config.UsersDir, user, config.RepoName,"local_dev")
 	composeFile := fmt.Sprintf("compose.%s.yaml", user)
 	return filepath.Join(userDir, composeFile)
 }
+
+// Check if user is in excluded or included list
 func userNameOk(user string,  included []string, excluded []string) bool{
 	if slices.Contains(excluded, user){
 		return false
@@ -121,22 +27,33 @@ func userNameOk(user string,  included []string, excluded []string) bool{
 		return false 
 	}
 	return true
-
 }
-func GenerateCompose(image string, tag string, included []string, excluded []string, test bool){
+
+func FilterUsers(users []User, included []string, excluded[] string) []User{
+	res := []User{}
+	for _, user := range users{
+		if userNameOk(user.UserName, included, excluded){
+			res = append(res, user)
+		}
+	}
+	return res
+}
+
+func GenerateCompose(image string, tag string, users []User, templatePath string, test bool)(err error){
 	var (
-		err error
 		composeFile io.WriteCloser
+		buff []byte
+		composeT = template.New("compose")
 	)
-	if len(image) == 0 && len(tag) == 0{
-		log.Printf("image and tag are required to generate compose")
-		flag.PrintDefaults()
+	if buff, err = os.ReadFile(templatePath); err !=nil{
+		err = fmt.Errorf("error reading template error %v", err)
 		return
 	}
-	if templ, err = templ.Parse(COMPOSE); err != nil{
-		log.Fatalf("Parse template error %v", err)
+	if composeT, err = composeT.Parse(string(buff)); err != nil{
+		err = fmt.Errorf("parse template error %v", err)
+		return
 	}
-	for _, user := range Users {
+	for _, user := range users {
 		if !userNameOk(user.UserName, included, excluded){
 			continue
 		}
@@ -156,59 +73,49 @@ func GenerateCompose(image string, tag string, included []string, excluded []str
 		 	defer composeFile.Close()
 		}
 		
-		if err = templ.Execute(composeFile, user); err != nil{
+		if err = composeT.Execute(composeFile, user); err != nil{
 			log.Printf("Error write file %s %v", composePath, err)
 		}
 		log.Printf("Done %s", user.UserName)
-		
 	}
+	return
 }
 
-func Stop(included []string, excluded []string, test bool){
+func Stop(users []User, test bool){
+	composeCommand("stop", users, test)
+}
+
+func Start(users []User, test bool){
+	composeCommand("start", users, test)
+}
+
+func Restart(users []User, test bool){
+	composeCommand("stop", users, test)
+	composeCommand("start", users, test)
+}
+
+func composeCommand(operation string, users []User, dry bool) {
 	var (
 		err error
 		cmd *exec.Cmd
 		stderr []byte
-	)
-	for _, user := range Users {
-		if !userNameOk(user.UserName, included, excluded){
-			continue
+		paramsMap = map[string][]string{
+			"start": {"compose", "-f", "", "up", "-d"},
+			"stop": {"compose", "-f", "", "down"},
 		}
+	)
+	for _, user := range users {
 		composePath := getComposePath(user.UserName)
-		params := []string{"compose", "-f", composePath, "down"}
-		log.Printf("Stop %s", composePath)
-		if test{
+		params := paramsMap[operation]
+		log.Printf("%s compose %s", operation, composePath)
+		if dry{
 			continue
 		}
 		cmd = exec.Command("docker", params...); 
 		stderr, err = cmd.CombinedOutput()
 		if err != nil{
-			log.Printf("Error %v, %s", err, string(stderr))
+			log.Printf("Error running %s on %s. %v", operation, composePath, err)
 		}
+		log.Printf("%s", string(stderr))
 	}
-}
-
-func Start(userNames []string, excluded []string, test bool){
-	var (
-		err error
-		cmd *exec.Cmd
-		stderr []byte
-	)
-	for _, user := range Users {
-		if !userNameOk(user.UserName, included, excluded){
-			continue
-		}
-		composePath := getComposePath(user.UserName)
-		params := []string{"compose", "-f", composePath, "up", "-d"}
-		log.Printf("Start %s", composePath)
-		if test{
-			continue
-		}
-		cmd = exec.Command("docker", params...); 
-		stderr, err = cmd.CombinedOutput()
-		if err != nil{
-			log.Printf("Error %v, %s", err, string(stderr))
-		}
-	}
-	
 }
