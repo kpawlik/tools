@@ -13,7 +13,7 @@ import (
 
 // return full path for compose file
 func getComposePath(user string) string {
-	userDir := filepath.Join(config.UsersDir, user, config.RepoName,"local_dev")
+	userDir := filepath.Join(config.UsersDir, user, config.RepoName, config.ComposeDir)
 	composeFile := fmt.Sprintf("compose.%s.yaml", user)
 	return filepath.Join(userDir, composeFile)
 }
@@ -39,7 +39,36 @@ func FilterUsers(users []User, included []string, excluded[] string) []User{
 	return res
 }
 
-func GenerateCompose(image string, tag string, users []User, templatePath string, test bool)(err error){
+
+func setupUserData(user User, cfg Config) User{
+	if len(user.ImageName) == 0 {
+		user.ImageName = cfg.ImageName
+	}
+	if len(user.ImageTag) == 0{
+		user.ImageTag = cfg.ImageTag
+	}
+	if len(user.PgDatabase) == 0{
+		user.PgDatabase = cfg.PgDatabase
+	}
+	if len(user.PgHost) == 0{
+		user.PgHost = cfg.PgHost
+	}
+	if len(user.PgUser) == 0{
+		user.PgUser = cfg.PgUser
+	}
+	if len(user.PgPort) == 0{
+		user.PgPort = cfg.PgPort
+	}
+	if len(user.PgPassword) == 0{
+		user.PgPassword = cfg.PgPassword
+	}
+	if len(user.HostName) == 0{
+		user.HostName = cfg.HostName
+	}
+	return user
+}
+
+func GenerateCompose(users []User, cfg Config, templatePath string, test bool)(err error){
 	var (
 		composeFile io.WriteCloser
 		buff []byte
@@ -54,15 +83,7 @@ func GenerateCompose(image string, tag string, users []User, templatePath string
 		return
 	}
 	for _, user := range users {
-		if !userNameOk(user.UserName, included, excluded){
-			continue
-		}
-		if len(image)>0{
-			user.ImageName = image
-		}
-		if len(tag)>0{
-			user.ImageTag = tag
-		}
+		user = setupUserData(user, cfg)
 		composePath := getComposePath(user.UserName)
 		if test{
 			composeFile = os.Stdout

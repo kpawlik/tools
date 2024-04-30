@@ -38,6 +38,8 @@ var (
 				log.Fatalf("%v", err)
 			}else{
 				config = c
+				config.ImageName = image
+				config.ImageTag = tag
 			}
 		},
   	}
@@ -75,7 +77,7 @@ var (
 		Long:  `Generate compose yaml file for users based on template file`,
 		Run: func(cmd *cobra.Command, args []string) {
 			users := FilterUsers(config.Users, included, excluded)
-			GenerateCompose(image, tag, users, templateFile, dry)
+			GenerateCompose( users, config, templateFile, dry)
 		},
   	}
 )
