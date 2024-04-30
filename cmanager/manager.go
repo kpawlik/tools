@@ -132,6 +132,7 @@ func composeCommand(operation string, users []User, dry bool) {
 		if dry{
 			continue
 		}
+		params[2] = composePath
 		cmd = exec.Command("docker", params...); 
 		stderr, err = cmd.CombinedOutput()
 		if err != nil{
